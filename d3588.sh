@@ -1,48 +1,65 @@
 #!/bin/bash
 
-set -ex
-JOB=`sed -n "N;/processor/p" /proc/cpuinfo|wc -l`
+set -xe
 
-ARCH=`uname -m`
-export KERNEL_TARGET=d3588
+# set config
+cp -a d3588_defconfig ./arch/arm64/configs/d3588_defconfig
+make ARCH=arm64 \
+	CROSS_COMPILE=aarch64-linux-gnu- \
+	KBUILD_BUILD_USER="builder" \
+	KBUILD_BUILD_HOST="kdevbuilder" \
+	d3588_defconfig
 
-if [ X"${ARCH}" == X"aarch64" ] ; then
-	GCC=""
-	CROSS_COMPILE_ARM64=""
-elif [ X"${ARCH}" == X"x86_64" ] ; then
-	GCC=`realpath ../gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu`
-	CROSS_COMPILE_ARM64=${GCC}/bin/aarch64-none-linux-gnu-
-	echo "using gcc: [${CROSS_COMPILE_ARM64}]"
-else
-	echo "${ARCH} is not supported now!"
-	exit 1
+# check kver
+KVER=$(make kernelrelease)
+KVER="${KVER/kdev*/kdev}"
+if [[ "$KVER" != *kdev ]]; then
+    echo "ERROR: KVER does not end with 'kdev'"
+    exit 1
 fi
+echo "KVER: ${KVER}"
 
+# build dtb
+#dtc -I dts -O dtb d3588.dts -o d3588.dtb
 
-# clean
-# make ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE_ARM64 mrproper
+# build kernel
+make ARCH=arm64 \
+	CROSS_COMPILE=aarch64-linux-gnu- \
+	KBUILD_BUILD_USER="builder" \
+	KBUILD_BUILD_HOST="kdevbuilder" \
+	-j `nproc`
 
-# kernel
-if [ -f .config ] ; then
-	cp -a .config .config-bak
-fi
-make ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE_ARM64 ${KERNEL_TARGET}_defconfig
-diff .config .config-bak
-if [ $? -eq 0 ] ; then
-	cp -a .config-bak .config
-fi
-make ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE_ARM64 -j$JOB
-# make ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE_ARM64 dtbs -j$JOB
-# make ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILE_ARM64 ${KERNEL_TARGET}.img
+# build modules
+make ARCH=arm64 \
+	CROSS_COMPILE=aarch64-linux-gnu- \
+	KBUILD_BUILD_USER="builder" \
+	KBUILD_BUILD_HOST="kdevbuilder" \
+	modules -j`nproc`
 
-mkdir -p ../tools/
-cp arch/arm64/boot/Image ../tools/
-
+# install modules
 mkdir -p ../rockdev/modules
-find . -name "*.ko" |xargs -i /bin/cp -a {} ../rockdev/modules/
+find . -name "*.ko" |xargs -i cp {} ../rockdev/modules/
 
-ls -alh ../rockdev/modules/
-md5sum ../rockdev/modules/*.ko
 
-echo "All done! [$?]"
+dd if=/dev/zero of=../rockdev/boot.img bs=1M count=60
+
+sudo mkfs.ext2 -U 7A3F0000-0000-446A-8000-702F00006273 -L kdevboot ../rockdev/boot.img
+sudo mount ../rockdev/boot.img /mnt
+#sudo mkdir -p /mnt/dtb
+
+#sudo cp -f d3588.dtb /mnt/dtb
+sudo cp -f arch/arm64/boot/Image /mnt/vmlinuz-${KVER}
+sudo cp -f .config /mnt/config-${KVER}
+sudo cp -f System.map /mnt/System.map-${KVER}
+sudo touch /mnt/initrd.img-${KVER}
+sudo mkdir -p /mnt/extlinux/
+sudo cp -f extlinux.conf /mnt/extlinux/
+sudo cp -f extlinux.conf /mnt/
+sudo cp -f armbian_first_run.txt /mnt/
+
+sudo find /mnt
+sync
+sudo umount /mnt
+
+echo "All done!"
 

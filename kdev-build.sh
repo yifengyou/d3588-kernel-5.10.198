@@ -10,12 +10,12 @@ make ARCH=arm64 \
   LOCALVERSION=-kdev \
   d3588_defconfig
 
-#make ARCH=arm64 \
-#  CROSS_COMPILE=aarch64-linux-gnu- \
-#  KBUILD_BUILD_USER="builder" \
-#  KBUILD_BUILD_HOST="kdevbuilder" \
-#  LOCALVERSION=-kdev \
-#  olddefconfig
+make ARCH=arm64 \
+  CROSS_COMPILE=aarch64-linux-gnu- \
+  KBUILD_BUILD_USER="builder" \
+  KBUILD_BUILD_HOST="kdevbuilder" \
+  LOCALVERSION=-kdev \
+  olddefconfig
 
 # show config
 # cat .config
